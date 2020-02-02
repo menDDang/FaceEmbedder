@@ -5,11 +5,13 @@ import os
 import random
 import itertools
 
+
 def load_image(filename):
     img = cv2.imread(filename, cv2.IMREAD_COLOR)
     img = img.astype(np.float32)
     img /= 255
     return img
+
 
 class DataGenerator:
     def __init__(self, hp, id_list):
@@ -17,47 +19,28 @@ class DataGenerator:
         self.id_list = id_list
 
     def gen(self):
-        for n in itertools.count(1):
-            x = list()
-            _y = list()
-            for i in range(self.hp.train.people_num):
-                id = random.choice(self.id_list)
-                for j in range(self.hp.train.img_num):
-                    path = os.path.join(self.hp.base_dir, self.hp.data.data_path, id)
-                    filename = os.path.join(path, random.choice(os.listdir(path)))
-                    img = load_image(filename)
-                    x.append(img)
-                    _y.append([i])
+        N = self.hp.train.img_num
 
-            # shuffle
-            x = np.array(x, dtype=np.float32)
-            _y = np.array(_y, dtype=np.int32)
-            idx = np.arange(x.shape[0])
-            np.random.shuffle(idx)
-            x = x[idx]
-            _y = _y[idx]
+        for iter in itertools.count(1):
+            id = self.id_list[iter]
+            path = os.path.join(self.hp.data.data_path, id)
+            x = np.zeros(shape=[N, self.hp.data.size, self.hp.data.size, 3], dtype=np.float32)
+            for n in range(N):
+                filename = os.path.join(path, random.choice(os.listdir(path)))
+                x[n, :, :, :] = load_image(filename)
 
-            # create label
-            y = np.zeros(shape=[x.shape[0], x.shape[0]], dtype=np.float32)
-            for i in range(x.shape[0]):
-                for j in range(x.shape[0]):
-                    if _y[i] == _y[j]:
-                        y[i,j] = 1
-                    else:
-                        y[i,j] = 0
-
-            yield x, y
+            x = np.array(x)
+            yield x
 
 
 def create_dataloader(hp, id_list):
-    data_num = hp.train.people_num * hp.train.img_num
-    x_shape = [data_num, hp.data.height, hp.data.width, 3]
-    y_shape = [data_num, data_num]
+    x_shape = [hp.train.img_num, hp.data.size, hp.data.size, 3]
     generator = DataGenerator(hp, id_list)
     dataloader = tf.data.Dataset.from_generator(
         generator=generator.gen,
-        output_types=(tf.float32, tf.float32),
-        output_shapes=(tf.TensorShape(x_shape), tf.TensorShape(y_shape))
+        output_types=(tf.float32),
+        output_shapes=(tf.TensorShape(x_shape))
     )
 
-    return dataloader.repeat().batch(1)
+    return dataloader.repeat().batch(hp.train.people_num)
+
