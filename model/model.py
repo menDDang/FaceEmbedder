@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, MaxPool2D, Flatten, Dense
-from .loss import *
+from model.loss import *
 import os
 
 
@@ -28,16 +28,16 @@ class FaceEmbedder(tf.keras.Model):
     def call(self, x):
         return self.model(x)
 
-    def train_on_batch(self, x):
+    def train_on_batch(self, batch_x):
         if self.optimizer is None:
             raise TypeError("Optimizer is Nonetype! Compile model first!")
 
         with tf.GradientTape() as tape:
-            embeddings = self.model(x)
+            embeddings = self.model(batch_x)
             similarities = get_similarity_mat(embeddings, N=self.hp.train.people_num, M=self.hp.train.img_num, center=None)
             loss_value = calculate_loss(similarities)
-        grads = tape.gradient(loss_value, self.trainable_variables)
-        self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
+            grads = tape.gradient(loss_value, self.trainable_variables)
+            self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
         return loss_value
 
     def evaluate(self, x, center=None, N=7, M=3):
@@ -48,7 +48,7 @@ class FaceEmbedder(tf.keras.Model):
         similarities = get_similarity_mat(embeddings, N=N, M=M, center=center)
 
         # Calculate loss
-        #loss_value = calculate_loss(similarities, N=N, M=M)
+        loss_value = calculate_loss(similarities, N=N, M=M)
 
         # Calculate EER
         similarities = tf.reshape(similarities, [N, M, -1])
@@ -73,38 +73,4 @@ class FaceEmbedder(tf.keras.Model):
                 #EER_FAR = FRR
 
         return loss_value, EER
-
-    def fit(self, train_dataloader, test_dataloader, hp, writer):
-        train_epoch_num = hp.train.train_epoch_num
-        learning_rate = hp.train.learning_rate
-
-        for epoch in range(1, train_epoch_num+1):
-            N = self.hp.train.people_num
-            M = self.hp.train.img_num
-            train_loss = []
-            for x in train_dataloader.take(1):
-                x = tf.reshape(x, shape=[M * N, hp.data.size, hp.data.size, 3])
-                loss = self.train_on_batch(x)
-                train_loss.append(loss)
-
-            with writer.as_default():
-                train_loss = np.mean(train_loss)
-                tf.summary.scalar('train_loss', train_loss, step=epoch)
-
-            print('Epoch : {}, Train loss : {}'.format(epoch, '%2.02f' % train_loss))
-
-            """
-            if epoch % hp.log.summary_interval == 0:
-                test_loss = []
-                for x in test_dataloader.take(1):
-                    x = tf.reshape(x, shape=[])
-                with writer.as_default():
-                    test_loss = []
-
-                    tf.summary.scalar('test_loss', test_loss, step=epoch)
-            """
-
-            if epoch % hp.train.save_interval == 0:
-                chkpt_name = os.path.join(self.hp.dir.chkpt_dir, 'checkpoint-' + str(epoch))
-                self.save_weights(chkpt_name)
                 
