@@ -2,14 +2,14 @@ import os
 import argparse
 import datetime
 import tensorflow as tf
-from scripts.model import FaceEmbedder
-from scripts.loss import *
+from model.model import FaceEmbedder
+from model.loss import *
 from utils.hparams import HParam
 from utils.dataloader import create_dataloader
 
 # Parsing arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('-c', '--config', required=True, help='configuration file')
+parser.add_argument('-c', '--config', default='config/config.yaml', help='configuration file')
 args = parser.parse_args()
 
 # Set hyper parameters
@@ -20,21 +20,35 @@ current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M")
 log_dir = os.path.join(hp.dir.log_dir, current_time)
 writer = tf.summary.create_file_writer(log_dir)
 
-# Get file lists
-data_list = os.listdir(hp.data.data_path)
-train_list = data_list[0:hp.data.train_num]
-test_list = data_list[hp.data.train_num:]
-
 # Create data loaders
-train_data_loader = create_dataloader(hp, train_list)
-test_data_loader = create_dataloader(hp, test_list)
+train_data_loader = create_dataloader(hp, train=True)
+test_data_loader = create_dataloader(hp, train=False)
 
 # Build model
-model = FaceEmbedder(hp)
-
-# Compile model
 optimizer = tf.optimizers.Adam(learning_rate=hp.train.learning_rate)
-model.compile(optimizer)
+model = FaceEmbedder(hp, optimizer=optimizer)
 
-# train model
-model.fit(train_data_loader, test_data_loader, hp, writer)
+#
+N = hp.train.people_num
+M = hp.train.img_num
+for epoch, batch_x in enumerate(train_data_loader.repeat().batch(N)):
+    batch_x = tf.reshape(batch_x, [N * M, hp.data.size, hp.data.size, hp.data.channel_num])
+
+    train_loss = model.train_on_batch(batch_x)
+
+    print("Epoch : {}, Train Loss : {}".format(epoch, train_loss))
+    #with writer.as_default():
+    #    tf.summary.scalar('train loss', train_loss, step=epoch)
+
+    if epoch % 10 == 0:
+        test_loss_list = []
+        test_eer_list = []
+        for i, batch_x in enumerate(test_data_loader.batch(N)):
+            if i == 10: break
+            batch_x = tf.reshape(batch_x, [N * M, hp.data.size, hp.data.size, hp.data.channel_num])
+
+            test_loss, test_eer = model.evaluate(batch_x, M=M, N=N)
+            test_loss_list.append(test_loss)
+            test_eer_list.append(test_eer)
+
+        print("Epoch : {}, Test Loss : {}, Test EER : {}".format(epoch, np.mean(test_loss_list), np.mean(test_eer_list)))
